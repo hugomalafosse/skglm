@@ -1,6 +1,8 @@
 import numpy as np
 from numpy.linalg import norm
 from sklearn.utils import check_random_state
+from sklearn.preprocessing import StandardScaler
+import scipy
 
 def make_correlated_data(
         n_samples=100, n_features=50, n_tasks=1, rho=0.6, snr=3,
@@ -238,11 +240,13 @@ def make_correlated_survival_data(
 
     Y = [y[0] for y in Y]
     U_rand = np.random.random()
-    cte = -np.log(U_rand)     
+    cte = -100*np.log(U_rand)     
     Time_ = np.exp(Y)
 
     
-    time = [cte/t for t in Time_]
+    time = [int(cte/t) for t in Time_]
+    
+    time = np.sort(time)
     
     # print("Urand :: ", U_rand)
     # print("cte :: ", cte)
@@ -250,10 +254,55 @@ def make_correlated_survival_data(
     # print("np.exp(y) :: ", np.shape(Time_))
     # print("time :: ", np.shape(time))
     
-    Y_surv = [[t, np.random.binomial(n=1, p=1-p_censor)] for t in time]
+    Y_surv = np.array([[t, np.random.binomial(n=1, p=1-p_censor)] for t in time])
 
     # print("Y final :: ", Y_surv)
     return X, Y_surv, w_true.flatten()
+
+def make_dummy_survival_data(n_samples, n_features, normalize=False,
+                             X_density=1., random_state=None):
+    """Generate a random dataset for survival analysis.
+    The design matrix ``X`` is generated according to standard normal, the vector of
+    time ``tm`` is chosen according to a Weibull(1, 1) (aka. Exponential), and the
+    vector of censorship ``s`` is drawn from a Bernoulli with parameter ``0.5``.
+    Parameters
+    ----------
+    n_samples : int
+        Number of samples in the design matrix.
+    n_features : int
+        Number of features in the design matrix.
+    normalize : bool, default=False
+        If ``True``, features are centered and divided by their
+        standard deviation. This argument is ineffective when ``X_density < 1``.
+    X_density : float, default=1
+        The density, proportion of non zero elements, of the design matrix ``X``.
+        X_density must be in ``(0, 1]``.
+    random_state : int, default=None
+        Determines random number generation for data generation.
+    Returns
+    -------
+    tm : array-like, shape (n_samples,)
+        The vector of recording the time of event occurrences
+    s : array-like, shape (n_samples,)
+        The vector of indicating samples censorship
+    X : array-like, shape (n_samples, n_features)
+        The matrix of predictors. If ``density < 1``, a CSC sparse matrix is returned.
+    """
+    rng = np.random.RandomState(random_state)
+
+    if X_density == 1.:
+        X = rng.randn(n_samples, n_features).astype(float, order='F')
+    else:
+        X = scipy.sparse.rand(
+            n_samples, n_features, density=X_density, format="csc", dtype=float)
+
+    tm = rng.weibull(a=1, size=n_samples)
+    s = rng.choice(2, size=n_samples).astype(float)
+
+    if normalize and X_density == 1.:
+        X = StandardScaler().fit_transform(X)
+
+    return tm, s, X
 
 
 def grp_converter(groups, n_features):
