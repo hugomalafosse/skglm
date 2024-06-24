@@ -287,6 +287,133 @@ class GeneralizedLinearEstimator(LinearModel):
         for p_prefix, p_key, p_val in penalty_params + datafit_params:
             params[p_prefix + p_key] = p_val
         return params
+    
+class GeneralizedSurvivalEstimator(LinearModel):
+    r"""Generic generalized linear estimator.
+
+    This estimator takes a penalty and a datafit and runs a coordinate descent solver
+    to solve the optimization problem. It handles classification and regression tasks.
+
+    Parameters
+    ----------
+    datafit : instance of BaseDatafit, optional
+        Datafit. If ``None``, ``datafit`` is initialized as a :class:`.Quadratic`
+        datafit.  ``datafit`` is replaced by a JIT-compiled instance when calling fit.
+
+    penalty : instance of BasePenalty, optional
+        Penalty. If ``None``, ``penalty`` is initialized as a :class:`.L1` penalty.
+        ``penalty`` is replaced by a JIT-compiled instance when
+        calling fit.
+
+    solver : instance of BaseSolver, optional
+        Solver. If ``None``, ``solver`` is initialized as an :class:`.AndersonCD`
+        solver.
+
+    Attributes
+    ----------
+    coef_ : array, shape (n_features,) or (n_features, n_tasks)
+        parameter array (:math:`w` in the cost function formula)
+
+    sparse_coef_ : scipy.sparse matrix, shape (n_features, 1) or (n_features, n_tasks)
+        ``sparse_coef_`` is a readonly property derived from ``coef_``
+
+    intercept_ : array, shape (n_tasks,)
+        constant term in decision function.
+
+    n_iter_ : int
+        Number of subproblems solved to reach the specified tolerance.
+    """
+
+    def __init__(self, datafit=None, penalty=None, solver=None):
+        super(GeneralizedSurvivalEstimator, self).__init__()
+        self.penalty = penalty
+        self.datafit = datafit
+        self.solver = solver
+
+    def __repr__(self):
+        """Get string representation of the estimator.
+
+        Returns
+        -------
+        repr : str
+            String representation.
+        """
+        return (
+            'GeneralizedLinearEstimator(datafit=%s, penalty=%s, alpha=%s)'
+            % (self.datafit.__class__.__name__, self.penalty.__class__.__name__,
+               self.penalty.alpha))
+
+    def fit(self, X, y):
+        """Fit estimator.
+
+        Parameters
+        ----------
+        X : array, shape (n_samples, n_features)
+            Design matrix.
+
+        y : array, shape (n_samples,) or (n_samples, n_tasks)
+            Target array.
+
+        Returns
+        -------
+        alphas : array, shape (n_alphas,)
+            The alphas along the path where models are computed.
+
+        coefs : array, shape (n_features, n_alphas) or (n_features, n_tasks, n_alphas)
+            Coefficients along the path.
+
+        stop_crit : array, shape (n_alphas,)
+            Value of stopping criterion at convergence along the path.
+
+        n_iters : array, shape (n_alphas,), optional
+            The number of iterations along the path. If return_n_iter is set to `True`.
+        """
+        self.penalty = self.penalty if self.penalty else L1(1.)
+        self.datafit = self.datafit if self.datafit else Quadratic()
+        self.solver = self.solver if self.solver else AndersonCD()
+
+        return _glm_fit(X, y, self, self.datafit, self.penalty, self.solver)
+
+    def predict(self, X):
+        """Predict target values for samples in X.
+
+        Parameters
+        ----------
+        X : array, shape (n_samples, n_features)
+            The data matrix to predict from.
+
+        Returns
+        -------
+        y_pred : array, shape (n_samples)
+            Contain the target values for each sample.
+        """
+     
+        return np.exp(self._decision_function(X))
+
+    def get_params(self, deep=False):
+        """Get parameters of the estimators including the datafit's and penalty's.
+
+        Parameters
+        ----------
+        deep : bool
+            Whether or not return the parameters for contained subobjects estimators.
+
+        Returns
+        -------
+        params : dict
+            The parameters of the estimator.
+        """
+        params = super().get_params(deep)
+        filtered_types = (float, int, str, np.ndarray)
+        penalty_params = [('penalty__', p, getattr(self.penalty, p)) for p in
+                          dir(self.penalty) if p[0] != "_" and
+                          type(getattr(self.penalty, p)) in filtered_types]
+        datafit_params = [('datafit__', p, getattr(self.datafit, p)) for p in
+                          dir(self.datafit) if p[0] != "_" and
+                          type(getattr(self.datafit, p)) in filtered_types]
+        for p_prefix, p_key, p_val in penalty_params + datafit_params:
+            params[p_prefix + p_key] = p_val
+        return params
 
 
 class Lasso(LinearModel, RegressorMixin):
